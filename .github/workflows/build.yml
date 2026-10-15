@@ -22,14 +22,43 @@ jobs:
           echo "PROJECT_PATH=$P" >> $GITHUB_ENV
       - name: Instalar templates
         run: |
-          echo "HOME=$HOME"
-          ls -la /root/.local/share/godot/export_templates/ || true
           if [ "$HOME" != "/root" ]; then
             mkdir -p ~/.local/share/godot ~/.config
             cp -r /root/.local/share/godot/export_templates ~/.local/share/godot/
             cp -r /root/.config/godot ~/.config/ || true
           fi
-          ls -la ~/.local/share/godot/export_templates/
+          ls ~/.local/share/godot/export_templates/
+      - name: Configurar Android
+        run: |
+          SM=$(find / -name sdkmanager -type f 2>/dev/null | head -n 1)
+          echo "sdkmanager: $SM"
+          SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/lib/android-sdk}}
+          echo "SDK: $SDK"
+          ls "$SDK" || true
+          if [ -n "$SM" ]; then
+            yes | "$SM" --sdk_root="$SDK" --licenses > /dev/null || true
+            "$SM" --sdk_root="$SDK" "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
+          fi
+          JAVA=$(dirname "$(dirname "$(readlink -f "$(which java)")")")
+          echo "JAVA: $JAVA"
+          KS=/root/debug.keystore
+          if [ ! -f "$KS" ]; then
+            keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore "$KS" -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999 -deststoretype pkcs12
+          fi
+          mkdir -p ~/.config/godot
+          F=$(ls ~/.config/godot/editor_settings*.tres 2>/dev/null | head -n 1)
+          if [ -z "$F" ]; then
+            F=~/.config/godot/editor_settings-4.3.tres
+            printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\n' > "$F"
+          fi
+          sed -i '/^export\/android\//d' "$F"
+          printf 'export/android/android_sdk_path = "%s"\n' "$SDK" >> "$F"
+          printf 'export/android/java_sdk_path = "%s"\n' "$JAVA" >> "$F"
+          printf 'export/android/debug_keystore = "%s"\n' "$KS" >> "$F"
+          printf 'export/android/debug_keystore_user = "androiddebugkey"\n' >> "$F"
+          printf 'export/android/debug_keystore_pass = "android"\n' >> "$F"
+          echo "Arquivo de configuração: $F"
+          grep "export/android" "$F"
       - name: Testes automatizados
         continue-on-error: true
         run: |
@@ -40,7 +69,10 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/build"
           cd "$PROJECT_PATH"
-          godot --headless --verbose --export-debug "Android" "$GITHUB_WORKSPACE/build/open-city.apk"
+          RC=0
+          godot --headless --verbose --export-debug "Android" "$GITHUB_WORKSPACE/build/open-city.apk" > /tmp/export.log 2>&1 || RC=$?
+          cat -v /tmp/export.log
+          exit $RC
       - name: Publicar APK
         uses: softprops/action-gh-release@v2
         with:
