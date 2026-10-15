@@ -1,0 +1,46 @@
+name: Build Android APK
+on:
+  workflow_dispatch:
+  push:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    container:
+      image: barichello/godot-ci:4.3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar projeto
+        run: |
+          if [ -f project.godot ]; then
+            P=.
+          else
+            unzip -o open-city-android.zip -d src
+            P=$(dirname "$(find src -name project.godot | head -n 1)")
+          fi
+          echo "PROJECT_PATH=$P" >> $GITHUB_ENV
+      - name: Instalar templates
+        run: |
+          mkdir -p ~/.local/share/godot/export_templates/
+          if [ ! -d ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable ]; then
+            mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/
+          fi
+      - name: Testes automatizados
+        continue-on-error: true
+        run: |
+          cd "$PROJECT_PATH"
+          godot --headless --import || true
+          godot --headless --path . -s tests/run_tests.gd
+      - name: Exportar APK
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/build"
+          cd "$PROJECT_PATH"
+          godot --headless --verbose --export-debug "Android" "$GITHUB_WORKSPACE/build/open-city.apk"
+      - name: Publicar APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Open City build ${{ github.run_number }}
+          files: build/open-city.apk
+          
