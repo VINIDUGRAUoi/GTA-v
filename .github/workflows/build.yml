@@ -22,10 +22,14 @@ jobs:
           echo "PROJECT_PATH=$P" >> $GITHUB_ENV
       - name: Instalar templates
         run: |
-          mkdir -p ~/.local/share/godot/export_templates/
-          if [ ! -d ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable ]; then
-            mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/
+          echo "HOME=$HOME"
+          ls -la /root/.local/share/godot/export_templates/ || true
+          if [ "$HOME" != "/root" ]; then
+            mkdir -p ~/.local/share/godot ~/.config
+            cp -r /root/.local/share/godot/export_templates ~/.local/share/godot/
+            cp -r /root/.config/godot ~/.config/ || true
           fi
+          ls -la ~/.local/share/godot/export_templates/
       - name: Testes automatizados
         continue-on-error: true
         run: |
