@@ -34,10 +34,14 @@ jobs:
           echo "sdkmanager: $SM"
           SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/lib/android-sdk}}
           echo "SDK: $SDK"
-          ls "$SDK" || true
           if [ -n "$SM" ]; then
             yes | "$SM" --sdk_root="$SDK" --licenses > /dev/null || true
-            "$SM" --sdk_root="$SDK" "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
+            "$SM" --sdk_root="$SDK" "platforms;android-34" "build-tools;34.0.0" "platform-tools" > /dev/null || true
+          fi
+          if [ ! -e "$SDK/cmdline-tools/latest/bin/sdkmanager" ] && [ -n "$SM" ]; then
+            SMDIR=$(dirname "$(dirname "$SM")")
+            mkdir -p "$SDK/cmdline-tools"
+            ln -sfn "$SMDIR" "$SDK/cmdline-tools/latest"
           fi
           JAVA=$(dirname "$(dirname "$(readlink -f "$(which java)")")")
           echo "JAVA: $JAVA"
@@ -57,8 +61,8 @@ jobs:
           printf 'export/android/debug_keystore = "%s"\n' "$KS" >> "$F"
           printf 'export/android/debug_keystore_user = "androiddebugkey"\n' >> "$F"
           printf 'export/android/debug_keystore_pass = "android"\n' >> "$F"
-          echo "Arquivo de configuração: $F"
-          grep "export/android" "$F"
+          echo "SDK=$SDK" >> $GITHUB_ENV
+          echo "JAVA=$JAVA" >> $GITHUB_ENV
       - name: Testes automatizados
         continue-on-error: true
         run: |
@@ -71,7 +75,26 @@ jobs:
           cd "$PROJECT_PATH"
           RC=0
           godot --headless --verbose --export-debug "Android" "$GITHUB_WORKSPACE/build/open-city.apk" > /tmp/export.log 2>&1 || RC=$?
-          cat -v /tmp/export.log
+          if [ $RC -ne 0 ]; then
+            echo "===== DIAGNOSTICO ====="
+            check() { if [ -e "$1" ]; then echo "OK    $1"; else echo "FALTA $1"; fi; }
+            check "$HOME/.local/share/godot/export_templates/4.3.stable/android_debug.apk"
+            check "$HOME/.local/share/godot/export_templates/4.3.stable/android_release.apk"
+            check /root/debug.keystore
+            check "$SDK/platform-tools/adb"
+            check "$SDK/build-tools/34.0.0/aapt2"
+            check "$SDK/platforms/android-34/android.jar"
+            check "$SDK/cmdline-tools/latest/bin/sdkmanager"
+            check "$JAVA/bin/javac"
+            echo "--- SDK:"; ls "$SDK"
+            echo "--- build-tools:"; ls "$SDK/build-tools"
+            echo "--- platforms:"; ls "$SDK/platforms"
+            echo "--- templates:"; ls "$HOME/.local/share/godot/export_templates/"
+            echo "--- android_debug.apk encontrados:"; find / -name android_debug.apk 2>/dev/null
+            echo "--- preset:"; grep -n "Android\|unique_name" export_presets.cfg
+            echo "--- configuracoes do Godot:"; grep "export/android" "$HOME"/.config/godot/editor_settings*.tres
+            echo "--- erros do export:"; grep -i -n "error\|erro" /tmp/export.log | cat -v
+          fi
           exit $RC
       - name: Publicar APK
         uses: softprops/action-gh-release@v2
