@@ -26,8 +26,6 @@ jobs:
           if ! grep -q "import_etc2_astc" project.godot; then
             sed -i '/^\[rendering\]/a textures/vram_compression/import_etc2_astc=true' project.godot
           fi
-          grep -n -A4 "^\[rendering\]" project.godot
-          ls -la export_presets.cfg
       - name: Instalar templates
         run: |
           if [ "$HOME" != "/root" ]; then
@@ -35,7 +33,6 @@ jobs:
             cp -r /root/.local/share/godot/export_templates ~/.local/share/godot/
             cp -r /root/.config/godot ~/.config/ || true
           fi
-          ls ~/.local/share/godot/export_templates/
       - name: Configurar Android
         run: |
           SM=$(find / -name sdkmanager -type f 2>/dev/null | head -n 1) || true
@@ -71,21 +68,30 @@ jobs:
         run: |
           cd "$PROJECT_PATH"
           godot --headless --import || true
-          godot --headless --path . -s tests/run_tests.gd
+          godot --headless --path . -s tests/run_tests.gd 2>&1 | tee /tmp/tests.log
+      - name: Rodar o jogo de verdade (teste de fumaca)
+        continue-on-error: true
+        run: |
+          cd "$PROJECT_PATH"
+          godot --headless --path . --quit-after 400 2>&1 | tee /tmp/game.log
+      - name: RESUMO DOS ERROS (me envie a captura deste passo)
+        continue-on-error: true
+        run: |
+          echo "===== ERROS AO RODAR O JOGO ====="
+          grep -n -i -E "error|parse|failed|invalid|nonexistent" /tmp/game.log | head -n 50 || true
+          echo "===== DIAGNOSTICO DO JOGO ====="
+          grep -n -A8 "DIAGN" /tmp/game.log | head -n 20 || true
+          echo "===== TESTES: FALHAS E ERROS ====="
+          grep -n -i -E "FALHA|error|parse|Resultado" /tmp/tests.log | head -n 50 || true
       - name: Exportar APK
         run: |
           mkdir -p "$GITHUB_WORKSPACE/build"
           cd "$PROJECT_PATH"
-          RC=0
-          godot --headless --verbose --export-debug "Android" "$GITHUB_WORKSPACE/build/open-city.apk" > /tmp/export.log 2>&1 || RC=$?
-          echo "===== FIM DO LOG DO GODOT ====="
-          tail -n 60 /tmp/export.log | cat -v
-          echo "===== LINHAS COM ERRO ====="
-          grep -i -n -B1 -A3 "error\|erro\|requires\|invalid" /tmp/export.log | cat -v | head -n 60 || true
-          exit $RC
+          godot --headless --verbose --export-debug "Android" "$GITHUB_WORKSPACE/build/open-city.apk" > /tmp/export.log 2>&1 || { tail -n 40 /tmp/export.log; exit 1; }
       - name: Publicar APK
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: Open City build ${{ github.run_number }}
           files: build/open-city.apk
+          
